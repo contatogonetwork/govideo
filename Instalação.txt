@@ -1,0 +1,23 @@
+pip install gonetwork-ai
+Code
+
+
+### Método 2: Instalação manual
+```bash
+# Clone o repositório
+git clone https://github.com/gonetwork/gonetwork-ai.git
+cd gonetwork-ai
+
+# Instale as dependências
+pip install -e .
+
+Método 3: Usando o script de setup
+bash
+
+python setup.py install
+
+Primeiros Passos
+Iniciar a aplicação
+bash
+
+python main.py

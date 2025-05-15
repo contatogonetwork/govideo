@@ -1,0 +1,23 @@
+gonetwork-ai/
+├── core/                  # Funcionalidades centrais
+│   ├── database.py        # Modelos e funções de banco de dados
+│   └── config.py          # Configurações globais
+├── modules/               # Módulos principais
+│   ├── events/            # Gerenciamento de eventos
+│   ├── team/              # Gerenciamento de equipe
+│   ├── deliveries/        # Controle de entregas
+│   ├── assets/            # Biblioteca de assets
+│   └── ai/                # Funcionalidades de IA
+├── ui/                    # Interface do usuário
+│   ├── views/             # Telas principais
+│   ├── dialogs/           # Diálogos e formulários
+│   ├── widgets/           # Componentes reutilizáveis
+│   └── models/            # Modelos de dados para UI
+├── resources/             # Recursos estáticos
+│   ├── icons/             # Ícones
+│   ├── images/            # Imagens
+│   └── models/            # Modelos de IA pré-treinados
+├── uploads/               # Diretório de uploads
+├── logs/                  # Registros de log
+├── main.py                # Ponto de entrada da aplicação
+└── setup.py               # Script de instalação

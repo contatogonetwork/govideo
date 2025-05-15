@@ -1,0 +1,8 @@
+README.md
+setup.py
+gonetwork_ai.egg-info/PKG-INFO
+gonetwork_ai.egg-info/SOURCES.txt
+gonetwork_ai.egg-info/dependency_links.txt
+gonetwork_ai.egg-info/entry_points.txt
+gonetwork_ai.egg-info/requires.txt
+gonetwork_ai.egg-info/top_level.txt
