@@ -22,6 +22,7 @@ from PyQt5.QtCore import Qt, QSettings, QSize, QTimer, QFileInfo
 # Importação dos módulos necessários
 from core.database import init_database, Base, create_session
 from core.config import DEFAULT_DB_PATH, UPLOAD_DIR
+from core.pdf_report import EventReportGenerator, PDFReport
 
 # Views da aplicação
 from ui.views.event_manager_view import EventManagerView
@@ -29,6 +30,9 @@ from ui.views.team_view import TeamView
 from ui.views.delivery_view import DeliveryView
 from ui.views.dashboard_view import DashboardView
 from ui.views.asset_library_view import AssetLibraryView
+# # from ui.views.activation_view import ActivationView # Temporariamente comentado
+from ui.views.team_schedule_view import TeamScheduleView
+from ui.views.delivery_kanban_view import DeliveryKanbanView
 
 # Diálogos
 from ui.dialogs.event_browser_dialog import EventBrowserDialog
@@ -86,11 +90,27 @@ class MainWindow(QMainWindow):
         
         self.asset_library_view = AssetLibraryView(self.db, self)
         
+        # Nova view de ativações patrocinadas
+        # self.activation_view = None # Temporariamente desabilitado
+        
+        # Nova view de escala da equipe
+        self.team_schedule_view = TeamScheduleView(self.db, self)
+        
+        # Nova view de Kanban para entregas
+        self.delivery_kanban_view = DeliveryKanbanView(self.db, self)
+        
+        # Conectar sinais
+        self.delivery_kanban_view.delivery_double_clicked.connect(self.on_delivery_edit)
+        self.team_schedule_view.assignment_updated.connect(self.on_assignment_updated)
+        
         # Adicionar abas
         self.tabs.addTab(self.dashboard_view, self.load_icon("dashboard.png"), "Dashboard")
         self.tabs.addTab(self.event_manager_view, self.load_icon("event.png"), "Eventos")
         self.tabs.addTab(self.team_view, self.load_icon("team.png"), "Equipe")
+        self.tabs.addTab(self.team_schedule_view, self.load_icon("calendar.png"), "Escala")
         self.tabs.addTab(self.delivery_view, self.load_icon("delivery.png"), "Entregas")
+        self.tabs.addTab(self.delivery_kanban_view, self.load_icon("kanban.png"), "Kanban")
+        # self.tabs.addTab(self.activation_view, self.load_icon("analyze.png"), "Ativações") # Temporariamente desabilitado
         self.tabs.addTab(self.asset_library_view, self.load_icon("media.png"), "Assets")
         
         self.setCentralWidget(self.tabs)
@@ -132,10 +152,15 @@ class MainWindow(QMainWindow):
         action_open_event.setStatusTip("Abrir um evento existente")
         action_open_event.triggered.connect(self.on_open_event)
         
-        action_export = QAction(self.load_icon("export.png"), "Exportar", self)
+        action_export = QAction(self.load_icon("export.png"), "Exportar Dados", self)
         action_export.setShortcut("Ctrl+E")
-        action_export.setStatusTip("Exportar dados")
-        action_export.triggered.connect(self.on_export)
+        action_export.setStatusTip("Exportar dados brutos do evento")
+        action_export.triggered.connect(self.on_export_raw_data)
+        
+        action_report = QAction(self.load_icon("document.png"), "Gerar Relatório PDF", self)
+        action_report.setShortcut("Ctrl+R")
+        action_report.setStatusTip("Gerar relatório PDF do evento")
+        action_report.triggered.connect(self.on_export_pdf_report)
         
         action_settings = QAction(self.load_icon("settings.png"), "Configurações", self)
         action_settings.setStatusTip("Alterar configurações da aplicação")
@@ -151,6 +176,7 @@ class MainWindow(QMainWindow):
         menu_file.addAction(action_open_event)
         menu_file.addSeparator()
         menu_file.addAction(action_export)
+        menu_file.addAction(action_report)
         menu_file.addSeparator()
         menu_file.addAction(action_settings)
         menu_file.addSeparator()
@@ -204,13 +230,17 @@ class MainWindow(QMainWindow):
         action_deliveries = QAction(self.load_icon("delivery.png"), "Entregas", self)
         action_deliveries.triggered.connect(lambda: self.tabs.setCurrentIndex(3))
         
+        action_activations = QAction(self.load_icon("analyze.png"), "Ativações", self)
+        action_activations.triggered.connect(lambda: self.tabs.setCurrentIndex(4))
+        
         action_assets = QAction(self.load_icon("media.png"), "Assets", self)
-        action_assets.triggered.connect(lambda: self.tabs.setCurrentIndex(4))
+        action_assets.triggered.connect(lambda: self.tabs.setCurrentIndex(5))
         
         menu_view.addAction(action_dashboard)
         menu_view.addAction(action_events)
         menu_view.addAction(action_team)
         menu_view.addAction(action_deliveries)
+        menu_view.addAction(action_activations)
         menu_view.addAction(action_assets)
         
         menu_view.addSeparator()
@@ -290,8 +320,10 @@ class MainWindow(QMainWindow):
                                      triggered=lambda: self.tabs.setCurrentIndex(2)))
         main_toolbar.addAction(QAction(self.load_icon("delivery.png"), "Entregas", self,
                                      triggered=lambda: self.tabs.setCurrentIndex(3)))
-        main_toolbar.addAction(QAction(self.load_icon("media.png"), "Assets", self,
+        main_toolbar.addAction(QAction(self.load_icon("analyze.png"), "Ativações", self,
                                      triggered=lambda: self.tabs.setCurrentIndex(4)))
+        main_toolbar.addAction(QAction(self.load_icon("media.png"), "Assets", self,
+                                     triggered=lambda: self.tabs.setCurrentIndex(5)))
         
         self.addToolBar(main_toolbar)
         
@@ -304,6 +336,10 @@ class MainWindow(QMainWindow):
         # Ações de ferramentas
         second_toolbar.addAction(QAction(self.load_icon("backup.png"), "Backup", self,
                                       triggered=self.on_backup))
+        second_toolbar.addAction(QAction(self.load_icon("document.png"), "Gerar Relatório", self,
+                                      triggered=self.on_export_pdf_report))
+        second_toolbar.addAction(QAction(self.load_icon("export.png"), "Exportar Dados", self,
+                                      triggered=self.on_export_raw_data))
         second_toolbar.addAction(QAction(self.load_icon("analyze.png"), "Analisar Vídeo", self,
                                       triggered=self.on_analyze_video))
         second_toolbar.addAction(QAction(self.load_icon("settings.png"), "Configurações", self,
@@ -374,7 +410,11 @@ class MainWindow(QMainWindow):
         
         # Último evento
         if self.current_event:
-            self.settings.setValue("mainwindow/last_event_id", self.current_event.id)
+            # Verificar se é um objeto ou um ID
+            if isinstance(self.current_event, int):
+                self.settings.setValue("mainwindow/last_event_id", self.current_event)
+            else:
+                self.settings.setValue("mainwindow/last_event_id", self.current_event.id)
             
         # Sincronizar
         self.settings.sync()
@@ -634,25 +674,18 @@ class MainWindow(QMainWindow):
         except Exception as e:
             logger.error(f"Erro ao carregar último evento: {str(e)}")
             
-    def on_event_selected(self, event):
-        """Manipulador para evento selecionado
+    def on_event_selected(self, event_id):
+        """Atualiza a interface quando um evento é selecionado
         
         Args:
-            event: Evento selecionado
+            event_id (int): ID do evento selecionado
         """
-        self.current_event = event
-        
-        # Atualizar status
-        if event:
-            self.status_event_label.setText(f"Evento: {event.name}")
-            
-            # Atualizar outras views com o evento selecionado
-            self.dashboard_view.set_current_event(event)
-            self.team_view.set_current_event(event)
-            self.delivery_view.set_current_event(event)
-            self.asset_library_view.set_current_event(event)
-        else:
-            self.status_event_label.setText("Nenhum evento selecionado")
+        self.current_event = event_id
+        self.team_view.set_event(event_id)
+        self.delivery_view.set_event(event_id)
+        # self.activation_view.set_event(event_id) # Temporariamente desabilitado
+        self.team_schedule_view.set_event(event_id)
+        self.delivery_kanban_view.set_event(event_id)
             
     def on_tab_changed(self, index):
         """Manipulador para mudança de aba
@@ -681,46 +714,178 @@ class MainWindow(QMainWindow):
             self.on_event_selected(dialog.selected_event)
             
     def on_export(self):
-        """Exportar dados"""
-        # Verificar se há evento selecionado
-        if not self.current_event:
-            QMessageBox.warning(self, "Aviso", "Selecione um evento primeiro para exportação.")
+        """Função legada - redireciona para a exportação de dados brutos"""
+        self.on_export_raw_data()
+    
+    def on_export_raw_data(self):
+        """Exportar dados brutos do evento para CSV/Excel"""
+        if not hasattr(self, "current_event") or not self.current_event:
+            QMessageBox.warning(self, "Exportar Dados", "Nenhum evento selecionado para exportação.")
             return
-            
-        # Determinar diretório de exportação
-        export_dir = QFileDialog.getExistingDirectory(
-            self, 
-            "Selecionar Diretório para Exportação",
-            os.path.expanduser("~"),
-            QFileDialog.ShowDirsOnly | QFileDialog.DontResolveSymlinks
+
+        file_path, _ = QFileDialog.getSaveFileName(
+            self, "Salvar Dados Como", "", "Arquivos Excel (*.xlsx);;Arquivos CSV (*.csv)"
         )
         
-        if not export_dir:
+        if not file_path:
+            return  # Usuário cancelou
+            
+        try:
+            # Determinar o tipo de arquivo pela extensão
+            extension = os.path.splitext(file_path)[1].lower()
+            
+            if extension == '.xlsx':
+                self.export_to_excel(file_path)
+            elif extension == '.csv':
+                self.export_to_csv(file_path)
+            else:
+                # Adicionar extensão padrão se não foi especificada
+                if not extension:
+                    file_path += '.xlsx'
+                    self.export_to_excel(file_path)
+            
+            QMessageBox.information(self, "Exportação Concluída", 
+                                 f"Dados exportados com sucesso para:\n{file_path}")
+        except Exception as e:
+            logger.error(f"Erro ao exportar dados: {str(e)}")
+            QMessageBox.critical(self, "Erro", f"Erro ao exportar dados:\n{str(e)}")
+
+    def on_export_pdf_report(self):
+        """Abrir diálogo de geração de relatório em PDF"""
+        if not hasattr(self, "current_event") or not self.current_event:
+            QMessageBox.warning(self, "Gerar Relatório", "Nenhum evento selecionado para gerar relatório.")
             return
             
-        # Mostrar progresso
-        self.status_bar.showMessage("Exportando dados...")
-        
-        # Implementação básica - apenas um exemplo
+        if not self.check_pdf_dependencies():
+            return
+            
         try:
-            # Criar subdiretório com nome do evento
-            event_dir = os.path.join(export_dir, self.current_event.name.replace(" ", "_"))
-            os.makedirs(event_dir, exist_ok=True)
+            # Importar módulo apenas quando necessário
+            from ui.dialogs.report_dialog import ReportGeneratorDialog
             
-            # Placeholder para exportação real
-            with open(os.path.join(event_dir, "exported_data.json"), "w") as f:
-                f.write('{"status": "success", "message": "Dados exportados com sucesso"}')
+            # Criar e exibir o diálogo de configuração do relatório
+            dialog = ReportGeneratorDialog(self.session, self.current_event.id, parent=self)
+            dialog.exec_()
             
-            QMessageBox.information(self, "Exportação Concluída",
-                                 f"Dados exportados com sucesso para:\n{event_dir}")
-                                 
+        except ImportError as e:
+            logger.error(f"Erro ao importar módulo de relatórios: {str(e)}")
+            QMessageBox.critical(self, "Erro", "Módulo de relatórios não disponível.\nVerifique se todas as dependências estão instaladas.")
         except Exception as e:
-            logger.error(f"Erro na exportação: {str(e)}")
-            QMessageBox.critical(self, "Erro de Exportação",
-                              f"Ocorreu um erro ao exportar os dados:\n\n{str(e)}")
+            logger.error(f"Erro ao gerar relatório PDF: {str(e)}")
+            QMessageBox.critical(self, "Erro", f"Erro ao gerar relatório:\n{str(e)}")
+
+    def check_pdf_dependencies(self):
+        """Verifica se as dependências para geração de PDF estão instaladas
+        
+        Returns:
+            bool: True se todas as dependências estiverem disponíveis
+        """
+        try:
+            # Verificar ReportLab
+            import reportlab
             
-        finally:
-            self.status_bar.showMessage("Pronto", 5000)
+            # Verificar Pandas para dados
+            import pandas
+            
+            return True
+        except ImportError as e:
+            package = "reportlab" if "reportlab" in str(e) else "pandas"
+            QMessageBox.warning(
+                self, 
+                "Dependências Ausentes", 
+                f"A biblioteca {package} não está instalada.\n\n"
+                f"Por favor, execute o comando:\n"
+                f"pip install {package}"
+            )
+            return False
+
+    def export_to_excel(self, file_path):
+        """Exporta dados do evento atual para Excel"""
+        # Verificar se pandas está disponível
+        try:
+            import pandas as pd
+        except ImportError:
+            QMessageBox.critical(self, "Erro", "Biblioteca pandas não está instalada.\nInstale com: pip install pandas openpyxl")
+            return
+            
+        # Extrair dados do evento em DataFrame
+        event_data = {
+            "Nome": [self.current_event.name],
+            "Data Inicial": [self.current_event.start_date],
+            "Data Final": [self.current_event.end_date],
+            "Local": [self.current_event.location],
+            "Responsável": [self.current_event.responsible_person],
+            "Orçamento": [self.current_event.budget],
+            "Status": [self.current_event.status]
+        }
+        
+        # Criar um objeto ExcelWriter
+        with pd.ExcelWriter(file_path, engine='openpyxl') as writer:
+            # Exportar informações gerais do evento
+            pd.DataFrame(event_data).to_excel(writer, sheet_name='Evento', index=False)
+            
+            # Exportar atividades
+            if hasattr(self.current_event, 'activities') and self.current_event.activities:
+                activities_df = pd.DataFrame([
+                    {
+                        "Nome": a.name,
+                        "Descrição": a.description, 
+                        "Início": a.start_time,
+                        "Fim": a.end_time,
+                        "Responsável": a.responsible,
+                        "Status": a.status
+                    } for a in self.current_event.activities
+                ])
+                activities_df.to_excel(writer, sheet_name='Atividades', index=False)
+                
+            # Exportar entregas
+            if hasattr(self.current_event, 'deliveries') and self.current_event.deliveries:
+                deliveries_df = pd.DataFrame([
+                    {
+                        "Nome": d.name,
+                        "Descrição": d.description,
+                        "Data de Entrega": d.delivery_date,
+                        "Responsável": d.responsible,
+                        "Status": d.status
+                    } for d in self.current_event.deliveries
+                ])
+                deliveries_df.to_excel(writer, sheet_name='Entregas', index=False)
+                
+            # Exportar equipe
+            if hasattr(self.current_event, 'team_assignments') and self.current_event.team_assignments:
+                team_df = pd.DataFrame([
+                    {
+                        "Membro": t.member_name,
+                        "Função": t.role,
+                        "Data Início": t.start_date,
+                        "Data Fim": t.end_date,
+                        "Observações": t.notes
+                    } for t in self.current_event.team_assignments
+                ])
+                team_df.to_excel(writer, sheet_name='Equipe', index=False)
+
+    def export_to_csv(self, file_path):
+        """Exporta dados do evento atual para CSV"""
+        try:
+            import pandas as pd
+            import csv
+        except ImportError:
+            QMessageBox.critical(self, "Erro", "Biblioteca pandas não está instalada.\nInstale com: pip install pandas")
+            return
+            
+        # Exportar apenas os dados principais do evento para CSV
+        event_data = {
+            "Nome": [self.current_event.name],
+            "Data Inicial": [self.current_event.start_date],
+            "Data Final": [self.current_event.end_date],
+            "Local": [self.current_event.location],
+            "Responsável": [self.current_event.responsible_person],
+            "Orçamento": [self.current_event.budget],
+            "Status": [self.current_event.status]
+        }
+        
+        df = pd.DataFrame(event_data)
+        df.to_csv(file_path, index=False)
             
     def on_backup(self):
         """Fazer backup do banco de dados"""
@@ -928,6 +1093,41 @@ class MainWindow(QMainWindow):
         # Executar novo processo
         QApplication.quit()
         os.execl(sys.executable, sys.executable, *sys.argv)
+        
+    def on_delivery_edit(self, delivery_id):
+        """Editar entrega quando for clicada no Kanban
+        
+        Args:
+            delivery_id (int): ID da entrega a ser editada
+        """
+        try:
+            # Encontrar entrega no banco de dados
+            from core.database import Delivery
+            delivery = self.db.query(Delivery).get(delivery_id)
+            
+            if delivery:
+                from ui.dialogs.delivery_dialog import DeliveryDialog
+                dialog = DeliveryDialog(self.db, delivery.event_id, delivery=delivery, parent=self)
+                
+                if dialog.exec_() == QDialog.Accepted:
+                    # Atualizar visualizações
+                    self.delivery_kanban_view.refresh_data()
+                    self.delivery_view.refresh_data()
+            else:
+                QMessageBox.warning(self, "Erro", f"Entrega com ID {delivery_id} não encontrada")
+        
+        except Exception as e:
+            logger.error(f"Erro ao editar entrega: {str(e)}")
+            QMessageBox.warning(self, "Erro", f"Não foi possível editar a entrega: {str(e)}")
+            
+    def on_assignment_updated(self, assignment_id):
+        """Atualiza a visualização da equipe quando uma atribuição é modificada
+        
+        Args:
+            assignment_id (int): ID da atribuição atualizada
+        """
+        # Notificar a view principal de equipe sobre a atualização
+        self.team_view.refresh_data()
         
 def show_splash_screen():
     """Mostrar tela de splash durante inicialização"""

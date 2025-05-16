@@ -84,6 +84,7 @@ class Event(Base):
     assets = relationship("Asset", back_populates="event")
     tags = relationship("Tag", secondary=event_tags, back_populates="events")
     creator = relationship("User", foreign_keys=[created_by])
+    activations = relationship("Activation", back_populates="event", cascade="all, delete-orphan")
 
     def __repr__(self):
         return f"<Event {self.name}>"
@@ -151,6 +152,7 @@ class TeamAssignment(Base):
     role_details = Column(Text)
     start_time = Column(DateTime)
     end_time = Column(DateTime)
+    status = Column(String(20), default="ativo")  # Adicionado campo status
 
     member = relationship("TeamMember", back_populates="assignments")
     activity = relationship("Activity", back_populates="team_assignments")
@@ -216,6 +218,7 @@ class DeliveryComment(Base):
     comment = Column(Text, nullable=False)
     timestamp = Column(DateTime, default=datetime.datetime.utcnow)
     timecode = Column(String(12), nullable=True)
+    is_system = Column(Boolean, default=False)  # Adicionado campo is_system
 
     delivery = relationship("Delivery", back_populates="comments")
     user = relationship("User", back_populates="comments")
@@ -285,6 +288,48 @@ class Tag(Base):
 
     def __repr__(self):
         return f"<Tag {self.name}>"
+
+
+class Sponsor(Base):
+    __tablename__ = "sponsors"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False)
+    contact_name = Column(String(100))
+    contact_email = Column(String(100))
+    contact_phone = Column(String(20))
+    logo_path = Column(String(512))
+    description = Column(Text)
+    website = Column(String(255))
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    
+    # Relacionamentos
+    activations = relationship("Activation", back_populates="sponsor", cascade="all, delete-orphan")
+    
+    def __repr__(self):
+        return f"<Sponsor {self.name}>"
+
+
+class Activation(Base):
+    __tablename__ = "activations"
+    id = Column(Integer, primary_key=True)
+    name = Column(String(100), nullable=False)
+    description = Column(Text)
+    sponsor_id = Column(Integer, ForeignKey("sponsors.id", ondelete="CASCADE"))
+    event_id = Column(Integer, ForeignKey("events.id", ondelete="CASCADE"))
+    start_date = Column(DateTime, nullable=False)
+    end_date = Column(DateTime, nullable=False)
+    location = Column(String(255))
+    budget = Column(Float)
+    status = Column(String(50), default="Planejada")
+    created_at = Column(DateTime, default=datetime.datetime.utcnow)
+    updated_at = Column(DateTime, default=datetime.datetime.utcnow, onupdate=datetime.datetime.utcnow)
+    
+    # Relacionamentos
+    sponsor = relationship("Sponsor", back_populates="activations")
+    event = relationship("Event", back_populates="activations")
+    
+    def __repr__(self):
+        return f"<Activation {self.name} - {self.sponsor.name if self.sponsor else 'No sponsor'}>"
 
 
 def setup_database(engine_url, base):

@@ -324,6 +324,28 @@ class DeliveryView(QWidget):
         self.add_delivery_btn.setEnabled(event is not None)
         self.refresh()
         
+    def set_event(self, event_id):
+        """Define o evento atual pelo ID
+        
+        Args:
+            event_id (int): ID do evento
+        """
+        if not event_id:
+            self.current_event = None
+            self.add_delivery_btn.setEnabled(False)
+            self.refresh()
+            return
+            
+        # Verificar se o parâmetro já é um ID (inteiro)
+        if not isinstance(event_id, int) and hasattr(event_id, 'id'):
+            event_id = event_id.id
+            
+        # Buscar o evento pelo ID
+        from core.database import Event
+        event = self.db.query(Event).get(event_id)
+        if event:
+            self.set_current_event(event)
+        
     def setup_ui(self):
         """Configurar interface do usuário"""
         main_layout = QVBoxLayout(self)
@@ -885,10 +907,13 @@ class DeliveryView(QWidget):
         result = dialog.exec_()
         
         if result == QDialog.Accepted:
+            # Guardar o ID da entrega atual antes do refresh
+            delivery_id = self.current_delivery.id if self.current_delivery else None
             self.refresh()
             
-            # Re-selecionar a entrega atual
-            self.select_delivery(self.current_delivery.id)
+            # Re-selecionar a entrega atual apenas se tivermos um ID válido
+            if delivery_id is not None:
+                self.select_delivery(delivery_id)
             
     def on_delete_delivery(self):
         """Manipulador para excluir entrega selecionada"""

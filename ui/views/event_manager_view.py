@@ -246,8 +246,9 @@ class EventManagerView(QWidget):
         self.edit_event_btn.setEnabled(True)
         self.delete_event_btn.setEnabled(True)
         
-        # Emitir sinal de evento selecionado
-        self.event_selected.emit(event)
+        # Emitir sinal de evento selecionado (apenas o ID)
+        if event and hasattr(event, 'id'):
+            self.event_selected.emit(event.id)
         
     def set_selected_date(self, date):
         """Definir data selecionada"""

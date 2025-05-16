@@ -60,3 +60,15 @@
 ```bash
 pip install -r requirements.txt
 python main.py
+
+## Histórico de Atualizações
+
+### 15 de maio de 2025 - Correção de bugs (v1.1.1)
+- Corrigido erro ao salvar comentários em entregas (`is_system` inválido em `DeliveryComment`)
+- Corrigido erro de NoneType ao editar entregas na interface
+- Adicionado script de manutenção automática do sistema
+- Implementada rotação de logs (5MB por arquivo, máximo 5 backups)
+
+Para mais detalhes, consulte os relatórios:
+- Correções de bugs: [bug_fix_report_20250515.md](bug_fix_report_20250515.md)
+- Manutenção: [maintenance_report_20250515.md](maintenance_report_20250515.md)

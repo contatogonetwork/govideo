@@ -1,0 +1,377 @@
+# filepath: c:\govideo\ui\dialogs\activation_dialog_fixed2.py
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+GONETWORK AI - Diálogo para criar e editar ativações patrocinadas
+Data: 2025-05-15
+Autor: GONETWORK AI
+"""
+
+import os
+import logging
+from datetime import datetime
+
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QComboBox, 
+    QLineEdit, QTextEdit, QPushButton, QLabel, QFileDialog,
+    QMessageBox, QDialogButtonBox
+)
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPixmap
+from datetime import datetime, timedelta
+
+from core.database import Sponsor, Activity, Event, Stage
+from core.database import Activation
+from core.database_upgrade import ActivationStatus
+
+logger = logging.getLogger(__name__)
+
+class ActivationDialog(QDialog):
+    """Diálogo para adicionar ou editar uma ativação patrocinada"""
+    
+    def __init__(self, db_session, event_id, activation=None, parent=None):
+        """
+        Inicializa o diálogo de ativação
+        
+        Args:
+            db_session: Sessão de banco de dados SQLAlchemy
+            event_id: ID do evento
+            activation: Objeto Activation existente (para edição) ou None (para criação)
+            parent: Widget pai
+        """
+        super().__init__(parent)
+        self.db = db_session
+        self.event_id = event_id
+        self.activation = activation
+        self.setup_ui()
+        
+        if self.activation:
+            self.setWindowTitle("Editar Ativação Patrocinada")
+            self.load_activation_data()
+        else:
+            self.setWindowTitle("Nova Ativação Patrocinada")
+    
+    def setup_ui(self):
+        """Configurar a interface do diálogo"""
+        # Layout principal
+        main_layout = QVBoxLayout(self)
+        
+        # Formulário
+        form_layout = QFormLayout()
+        
+        # Seleção de patrocinador
+        self.sponsor_combo = QComboBox()
+        self.sponsor_combo.setEditable(False)  # Não editável, mas selecionável
+        self.sponsor_combo.setEnabled(True)    # Habilitado por padrão
+        form_layout.addRow("Patrocinador:", self.sponsor_combo)
+        
+        # Botão para adicionar novo patrocinador
+        add_sponsor_btn = QPushButton("Adicionar Novo Patrocinador")
+        add_sponsor_btn.clicked.connect(self.on_add_sponsor)
+        form_layout.addRow("", add_sponsor_btn)
+        
+        # Seleção de atividade
+        self.activity_combo = QComboBox()
+        self.activity_combo.setEditable(False)  # Não editável, mas selecionável
+        self.activity_combo.setEnabled(True)    # Habilitado por padrão
+        form_layout.addRow("Atividade:", self.activity_combo)
+        
+        # Status
+        self.status_combo = QComboBox()
+        self.status_combo.addItem("⏳ Pendente", ActivationStatus.pending)
+        self.status_combo.addItem("✅ Filmado", ActivationStatus.filmed)
+        self.status_combo.addItem("❌ Falhou", ActivationStatus.failed)
+        form_layout.addRow("Status:", self.status_combo)
+        
+        # Observações
+        self.notes_edit = QTextEdit()
+        self.notes_edit.setMaximumHeight(100)
+        form_layout.addRow("Observações:", self.notes_edit)
+        
+        # Evidência
+        self.evidence_path = QLineEdit()
+        self.evidence_path.setReadOnly(True)
+        
+        evidence_layout = QHBoxLayout()
+        evidence_layout.addWidget(self.evidence_path)
+        
+        browse_btn = QPushButton("Procurar")
+        browse_btn.clicked.connect(self.on_browse_evidence)
+        evidence_layout.addWidget(browse_btn)
+        
+        form_layout.addRow("Evidência:", evidence_layout)
+        
+        # Adicionar formulário ao layout principal
+        main_layout.addLayout(form_layout)
+        
+        # Botões de ação
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.on_accept)
+        button_box.rejected.connect(self.reject)
+        
+        main_layout.addWidget(button_box)
+        
+        # Carregar dados
+        self.load_sponsors()
+        self.load_activities()
+        
+        # Definir tamanho
+        self.resize(500, 350)
+    
+    def load_sponsors(self):
+        """Carrega a lista de patrocinadores"""
+        try:
+            self.sponsor_combo.clear()
+            
+            # Adiciona placeholder no início
+            self.sponsor_combo.addItem("Selecione um patrocinador", None)
+            
+            sponsors = self.db.query(Sponsor).order_by(Sponsor.name).all()
+            for sponsor in sponsors:
+                self.sponsor_combo.addItem(sponsor.name, sponsor.id)
+            
+            if self.activation and self.activation.sponsor_id:
+                index = self.sponsor_combo.findData(self.activation.sponsor_id)
+                if index >= 0:
+                    self.sponsor_combo.setCurrentIndex(index)
+            else:
+                # Seleciona o primeiro item (placeholder)
+                self.sponsor_combo.setCurrentIndex(0)
+                
+            # Garante que o combo box esteja editável/habilitado
+            self.sponsor_combo.setEnabled(True)
+        
+        except Exception as e:
+            logger.error(f"Erro ao carregar patrocinadores: {str(e)}")
+            QMessageBox.warning(self, "Erro", f"Não foi possível carregar os patrocinadores: {str(e)}")
+    
+    def load_activities(self):
+        """Carrega a lista de atividades do evento"""
+        try:
+            self.activity_combo.clear()
+            
+            # Adiciona placeholder no início
+            self.activity_combo.addItem("Selecione uma atividade", None)
+            
+            # Tenta buscar atividades do evento
+            activities = self.db.query(Activity) \
+                .join(Activity.stage) \
+                .filter(Activity.stage.has(Event.id == self.event_id)) \
+                .order_by(Activity.start_time).all()
+            
+            # Se encontrou atividades, adiciona ao combo
+            if activities:
+                for activity in activities:
+                    start_time = activity.start_time.strftime("%d/%m %H:%M") if activity.start_time else ""
+                    stage_name = activity.stage.name if activity.stage else ""
+                    display_text = f"{activity.name} ({start_time} - {stage_name})"
+                    self.activity_combo.addItem(display_text, activity.id)
+            else:
+                # Se não há atividades, adiciona os palcos como opções
+                stages = self.db.query(Stage).filter(Stage.event_id == self.event_id).all()
+                if stages:
+                    for stage in stages:
+                        display_text = f"Palco: {stage.name}"
+                        # Usamos um valor negativo para identificar que é um palco, não uma atividade
+                        self.activity_combo.addItem(display_text, -stage.id)
+            
+            # Se estiver editando, seleciona a atividade atual
+            if self.activation and self.activation.activity_id:
+                index = self.activity_combo.findData(self.activation.activity_id)
+                if index >= 0:
+                    self.activity_combo.setCurrentIndex(index)
+            else:
+                # Seleciona o primeiro item (placeholder)
+                self.activity_combo.setCurrentIndex(0)
+                
+            # Garante que o combo box esteja editável/habilitado
+            self.activity_combo.setEnabled(True)
+        
+        except Exception as e:
+            logger.error(f"Erro ao carregar atividades: {str(e)}")
+            QMessageBox.warning(self, "Erro", f"Não foi possível carregar as atividades: {str(e)}")
+    
+    def load_activation_data(self):
+        """Carrega os dados da ativação para edição"""
+        if not self.activation:
+            return
+        
+        # Status
+        status_value = self.activation.status.value if hasattr(self.activation.status, 'value') else self.activation.status
+        index = self.status_combo.findData(status_value)
+        if index >= 0:
+            self.status_combo.setCurrentIndex(index)
+          # Observações - agora estamos usando o campo description
+        self.notes_edit.setText(self.activation.description if self.activation.description else "")
+          # Evidência - o modelo Activation não possui o campo evidence_path
+        # Vamos usar o campo location para armazenar o caminho da evidência temporariamente
+        self.evidence_path.setText(self.activation.location if self.activation.location else "")
+    
+    def on_browse_evidence(self):
+        """Abre diálogo para selecionar arquivo de evidência"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Selecionar Evidência", "",
+            "Arquivos de Mídia (*.jpg *.jpeg *.png *.gif *.mp4 *.mov *.avi)"
+        )
+        
+        if file_path:
+            self.evidence_path.setText(file_path)
+    
+    def on_add_sponsor(self):
+        """Adiciona um novo patrocinador"""
+        from ui.dialogs.sponsor_dialog import SponsorDialog
+        dialog = SponsorDialog(self.db, parent=self)
+        if dialog.exec_() == QDialog.Accepted:
+            # Recarregar lista de patrocinadores
+            self.load_sponsors()
+            
+            # Selecionar o novo patrocinador
+            new_sponsor_id = dialog.sponsor_id
+            if new_sponsor_id:
+                index = self.sponsor_combo.findData(new_sponsor_id)
+                if index >= 0:
+                    self.sponsor_combo.setCurrentIndex(index)
+    
+    def on_accept(self):
+        """Salvar a ativação e fechar o diálogo"""
+        # Validar campos
+        sponsor_id = self.sponsor_combo.currentData()
+        if not sponsor_id:
+            QMessageBox.warning(self, "Campo Obrigatório", "Selecione um patrocinador.")
+            return
+        
+        activity_id = self.activity_combo.currentData()
+        if not activity_id:
+            QMessageBox.warning(self, "Campo Obrigatório", "Selecione uma atividade ou palco.")
+            return
+        
+        # Se o ID é negativo, significa que selecionamos um palco
+        is_stage = isinstance(activity_id, int) and activity_id < 0
+        
+        try:
+            # Obter status selecionado
+            status_data = self.status_combo.currentData()
+            status = status_data if isinstance(status_data, ActivationStatus) else ActivationStatus(status_data)
+            
+            if self.activation:                # Modo de edição
+                self.activation.sponsor_id = sponsor_id
+                
+                # Para Activation não temos campo activity_id
+                # Vamos armazenar a informação na descrição
+                if is_stage:
+                    stage_id = abs(activity_id)
+                    stage = self.db.query(Stage).get(stage_id)
+                    if stage:
+                        stage_name = stage.name
+                        self.activation.description = f"Palco: {stage_name}\n{self.activation.description or ''}"
+                else:
+                    activity = self.db.query(Activity).get(activity_id)
+                    if activity:
+                        activity_name = activity.name
+                        self.activation.description = f"Atividade: {activity_name}\n{self.activation.description or ''}"
+                      self.activation.status = status
+                self.activation.description = f"{self.activation.description.split('\n')[0]}\n{self.notes_edit.toPlainText()}"
+                  # Verificar se a evidência foi alterada
+                new_evidence_path = self.evidence_path.text().strip()
+                if new_evidence_path and new_evidence_path != self.activation.location:
+                    # Vamos usar o campo location para armazenar o caminho da evidência
+                    self.copy_evidence_file(self.activation)
+            else:                # Modo de criação
+                # Verificando campos obrigatórios de Activation
+                current_date = datetime.now()
+                activation_name = "Nova Ativação"
+                description = ""
+                notes = self.notes_edit.toPlainText()
+                
+                if is_stage:
+                    # É um palco, convertemos para uma atividade automática
+                    stage_id = abs(activity_id)  # Converte ID negativo para positivo
+                    
+                    # Verificar que estágio existe
+                    stage = self.db.query(Stage).get(stage_id)
+                    if not stage:
+                        raise ValueError(f"O palco com ID {stage_id} não foi encontrado")
+                    
+                    activation_name = f"Ativação em {stage.name}"
+                    description = f"Palco: {stage.name}\n{notes}"
+                    
+                    # Se o estágio tem evento, podemos pegar as datas do evento
+                    if stage.event:
+                        start_date = stage.event.start_date
+                        end_date = stage.event.end_date
+                    else:
+                        # Caso contrário, usamos a data atual
+                        start_date = current_date
+                        end_date = current_date + datetime.timedelta(hours=1)
+                        
+                else:
+                    # É uma atividade normal
+                    activity = self.db.query(Activity).get(activity_id)
+                    if activity:
+                        activation_name = f"Ativação em {activity.name}"
+                        description = f"Atividade: {activity.name}\n{notes}"
+                        start_date = activity.start_time
+                        end_date = activity.end_time
+                    else:
+                        # Caso não encontre a atividade
+                        activation_name = "Nova Ativação"
+                        description = notes
+                        start_date = current_date
+                        end_date = current_date + datetime.timedelta(hours=1)
+                
+                # Criando a ativação com os campos corretos do modelo
+                self.activation = Activation(
+                    name=activation_name,
+                    description=description,
+                    sponsor_id=sponsor_id,
+                    event_id=self.event_id,
+                    start_date=start_date,
+                    end_date=end_date,
+                    status=status.name if hasattr(status, 'name') else str(status)
+                )
+                
+                # Adicionar ao banco de dados para obter ID
+                self.db.add(self.activation)
+                self.db.flush()  # Para obter o ID da ativação
+                  # Copiar arquivo de evidência, se fornecido
+                # Adicionando o arquivo de evidência no campo location
+                if self.evidence_path.text().strip():
+                    self.copy_evidence_file(self.activation)
+            
+            # Salvar alterações
+            self.db.commit()
+            
+            self.accept()
+        
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Erro ao salvar ativação: {str(e)}")
+            QMessageBox.critical(self, "Erro", f"Não foi possível salvar a ativação: {str(e)}")
+    
+    def copy_evidence_file(self, activation):
+        """Copia o arquivo de evidência para a pasta de uploads"""
+        evidence_path = self.evidence_path.text().strip()
+        if not evidence_path or not os.path.exists(evidence_path):
+            return
+        
+        try:
+            # Criar pasta para evidências se não existir
+            evidence_dir = os.path.join("uploads", "evidences")
+            os.makedirs(evidence_dir, exist_ok=True)
+            
+            # Copiar arquivo para a pasta de evidências
+            from shutil import copy2
+            
+            # Gerar nome único para o arquivo
+            file_ext = os.path.splitext(evidence_path)[1]
+            new_filename = f"evidence_{activation.id}_{datetime.now().strftime('%Y%m%d%H%M%S')}{file_ext}"
+            new_path = os.path.join(evidence_dir, new_filename)
+            
+            # Copiar arquivo
+            copy2(evidence_path, new_path)
+              # Atualizar caminho no objeto - usando campo location
+            activation.location = new_path
+        
+        except Exception as e:
+            logger.error(f"Erro ao copiar arquivo de evidência: {str(e)}")
+            raise

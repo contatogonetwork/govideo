@@ -759,3 +759,62 @@ class TeamView(QWidget):
         # Recarregar agenda se tiver data selecionada
         if self.selected_date:
             self.load_schedule_for_date(self.selected_date)
+            
+    def set_event(self, event_id):
+        """Define o evento atual para a visualização da equipe
+        
+        Args:
+            event_id: ID do evento
+        """
+        if not event_id:
+            self.current_event = None
+            self.clear_ui()
+            return
+            
+        # Verificar se o parâmetro já é um ID (inteiro)
+        if not isinstance(event_id, int) and hasattr(event_id, 'id'):
+            event_id = event_id.id
+            
+        from core.database import Event
+        self.current_event = self.db.query(Event).get(event_id)
+        
+        # Atualizar a interface para mostrar os membros da equipe associados a este evento
+        self.load_team_assignments()
+        
+        # Atualizar calendário com atividades do evento
+        self.update_calendar()
+        
+    def clear_ui(self):
+        """Limpa a interface quando nenhum evento está selecionado"""
+        self.assignments_list.clear()
+        self.schedule_list.clear()
+        self.member_name_label.setText("-")
+        self.member_role_label.setText("-")
+        self.member_contact_label.setText("-")
+        self.member_skills_text.clear()
+        self.member_equipment_text.clear()
+        self.member_rate_label.setText("-")
+        
+    def load_team_assignments(self):
+        """Carrega as atribuições da equipe para o evento atual"""
+        if not self.current_event:
+            return
+            
+        # Implementação básica que será expandida posteriormente
+        self.assignments_list.clear()
+        
+        # Aqui seria implementada a lógica para carregar as atribuições do evento
+        
+    def update_calendar(self):
+        """Atualiza o calendário com atividades do evento atual"""
+        if not self.current_event:
+            return
+            
+        # Implementação básica que será expandida posteriormente
+        # Definir o intervalo de datas do evento no calendário
+        if self.current_event.start_date and self.current_event.end_date:
+            start_date = self.current_event.start_date.date()
+            self.calendar.setSelectedDate(QDate(start_date.year, start_date.month, start_date.day))
+            
+            # Selecionar a data atual e mostrar atividades para essa data
+            self.on_date_selected(self.calendar.selectedDate())

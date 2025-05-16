@@ -29,11 +29,19 @@ if __name__ == "__main__":
         # Fallback para o diretório atual
         pass
         
+    # Implementar rotação de logs
+    from logging.handlers import RotatingFileHandler
+    
     logging.basicConfig(
         level=logging.INFO,
         format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
         handlers=[
-            logging.FileHandler(log_file),
+            RotatingFileHandler(
+                log_file, 
+                maxBytes=5*1024*1024,  # 5 MB por arquivo
+                backupCount=5,         # Manter até 5 arquivos de backup
+                encoding='utf8'
+            ),
             logging.StreamHandler()
         ]
     )

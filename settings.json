@@ -1,0 +1,16 @@
+{
+    "app_name": "GONETWORK AI",
+    "app_version": "1.0.1",
+    "database_path": "C:\\govideo\\data\\gonetwork.db",
+    "upload_dir": "C:\\govideo\\uploads",
+    "backup_dir": "C:\\govideo\\backup",
+    "log_dir": "C:\\govideo\\logs",
+    "theme": "default",
+    "recent_events_count": 5,
+    "log_level": "INFO",
+    "log_max_size_mb": 5,
+    "log_backup_count": 5,
+    "auto_backup_on_start": true,
+    "auto_backup_on_exit": true,
+    "keep_backups_days": 30
+}

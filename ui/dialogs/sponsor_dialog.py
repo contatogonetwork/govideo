@@ -1,0 +1,220 @@
+# filepath: c:\govideo\ui\dialogs\sponsor_dialog_fixed.py
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
+"""
+GONETWORK AI - Diálogo para criar e editar patrocinadores
+Data: 2025-05-15
+Autor: GONETWORK AI
+"""
+
+import os
+import logging
+from datetime import datetime
+from shutil import copy2
+
+from PyQt5.QtWidgets import (
+    QDialog, QVBoxLayout, QHBoxLayout, QFormLayout, QLineEdit, 
+    QTextEdit, QPushButton, QLabel, QFileDialog, QMessageBox,
+    QDialogButtonBox, QFrame
+)
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QPixmap
+
+from core.database import Sponsor
+
+logger = logging.getLogger(__name__)
+
+class SponsorDialog(QDialog):
+    """Diálogo para adicionar ou editar um patrocinador"""
+    
+    def __init__(self, db_session, sponsor=None, parent=None):
+        """
+        Inicializa o diálogo de patrocinador
+        
+        Args:
+            db_session: Sessão de banco de dados SQLAlchemy
+            sponsor: Objeto Sponsor existente (para edição) ou None (para criação)
+            parent: Widget pai
+        """
+        super().__init__(parent)
+        self.db = db_session
+        self.sponsor = sponsor
+        self.sponsor_id = None  # Será definido após salvar com sucesso
+        self.logo_path = ""
+        
+        self.setup_ui()
+        
+        if self.sponsor:
+            self.setWindowTitle("Editar Patrocinador")
+            self.load_sponsor_data()
+        else:
+            self.setWindowTitle("Novo Patrocinador")
+    
+    def setup_ui(self):
+        """Configurar a interface do diálogo"""
+        # Layout principal
+        main_layout = QVBoxLayout(self)
+        
+        # Formulário
+        form_layout = QFormLayout()
+        
+        # Nome do patrocinador
+        self.name_edit = QLineEdit()
+        form_layout.addRow("Nome:", self.name_edit)
+        
+        # Descrição
+        self.description_edit = QTextEdit()
+        self.description_edit.setMaximumHeight(100)
+        form_layout.addRow("Descrição:", self.description_edit)
+        
+        # Logo
+        preview_layout = QHBoxLayout()
+        
+        # Exibição da logo
+        self.logo_preview = QLabel("Sem logo")
+        self.logo_preview.setFixedSize(150, 150)
+        self.logo_preview.setAlignment(Qt.AlignCenter)
+        self.logo_preview.setFrameShape(QFrame.Box)
+        self.logo_preview.setScaledContents(True)
+        preview_layout.addWidget(self.logo_preview)
+        
+        # Botões de controle da logo
+        logo_buttons_layout = QVBoxLayout()
+        
+        self.select_logo_btn = QPushButton("Selecionar Logo")
+        self.select_logo_btn.clicked.connect(self.on_select_logo)
+        logo_buttons_layout.addWidget(self.select_logo_btn)
+        
+        self.clear_logo_btn = QPushButton("Limpar Logo")
+        self.clear_logo_btn.clicked.connect(self.on_clear_logo)
+        self.clear_logo_btn.setEnabled(False)  # Desativado inicialmente
+        logo_buttons_layout.addWidget(self.clear_logo_btn)
+        
+        logo_buttons_layout.addStretch()
+        preview_layout.addLayout(logo_buttons_layout)
+        
+        form_layout.addRow("Logo:", preview_layout)
+        
+        # Adicionar formulário ao layout principal
+        main_layout.addLayout(form_layout)
+        
+        # Botões de ação
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
+        button_box.accepted.connect(self.on_accept)
+        button_box.rejected.connect(self.reject)
+        
+        main_layout.addWidget(button_box)
+        
+        # Definir tamanho
+        self.resize(400, 350)
+    
+    def load_sponsor_data(self):
+        """Carrega os dados do patrocinador para edição"""
+        if not self.sponsor:
+            return
+        
+        self.name_edit.setText(self.sponsor.name)
+        self.description_edit.setText(self.sponsor.description if self.sponsor.description else "")
+        
+        # Carregar logo, se existir
+        if self.sponsor.logo_path and os.path.exists(self.sponsor.logo_path):
+            self.logo_path = self.sponsor.logo_path
+            pixmap = QPixmap(self.logo_path)
+            self.logo_preview.setPixmap(pixmap)
+            self.clear_logo_btn.setEnabled(True)
+    
+    def on_select_logo(self):
+        """Abre diálogo para selecionar arquivo de logo"""
+        file_path, _ = QFileDialog.getOpenFileName(
+            self, "Selecionar Logo", "",
+            "Arquivos de Imagem (*.png *.jpg *.jpeg *.bmp *.gif)"
+        )
+        
+        if file_path:
+            self.logo_path = file_path
+            pixmap = QPixmap(self.logo_path)
+            self.logo_preview.setPixmap(pixmap)
+            self.clear_logo_btn.setEnabled(True)
+    
+    def on_clear_logo(self):
+        """Remove a logo selecionada"""
+        self.logo_path = ""
+        self.logo_preview.clear()
+        self.logo_preview.setText("Sem logo")
+        self.clear_logo_btn.setEnabled(False)
+    
+    def on_accept(self):
+        """Salvar o patrocinador e fechar o diálogo"""
+        # Validar nome
+        name = self.name_edit.text().strip()
+        if not name:
+            QMessageBox.warning(self, "Campo Obrigatório", "O nome do patrocinador é obrigatório.")
+            return
+        
+        try:
+            # Determinar se é uma criação ou edição
+            if self.sponsor:
+                # Modo de edição
+                self.sponsor.name = name
+                self.sponsor.description = self.description_edit.toPlainText().strip()
+                
+                # Atualizar logo se foi alterada
+                if self.logo_path and self.logo_path != self.sponsor.logo_path:
+                    self.copy_logo_file(self.sponsor)
+                elif not self.logo_path and self.sponsor.logo_path:
+                    # Logo foi removida
+                    self.sponsor.logo_path = None
+            else:
+                # Modo de criação
+                self.sponsor = Sponsor(
+                    name=name,
+                    description=self.description_edit.toPlainText().strip(),
+                    created_at=datetime.utcnow()
+                    # Removido created_by pois não existe no modelo Sponsor
+                )
+                
+                # Adicionar ao banco de dados para obter ID
+                self.db.add(self.sponsor)
+                self.db.flush()
+                
+                # Copiar logo, se fornecida
+                if self.logo_path:
+                    self.copy_logo_file(self.sponsor)
+            
+            # Salvar alterações
+            self.db.commit()
+            
+            # Armazenar ID para retorno
+            self.sponsor_id = self.sponsor.id
+            
+            self.accept()
+        
+        except Exception as e:
+            self.db.rollback()
+            logger.error(f"Erro ao salvar patrocinador: {str(e)}")
+            QMessageBox.critical(self, "Erro", f"Não foi possível salvar o patrocinador: {str(e)}")
+    
+    def copy_logo_file(self, sponsor):
+        """Copia o arquivo de logo para a pasta de uploads"""
+        if not self.logo_path or not os.path.exists(self.logo_path):
+            return
+        
+        try:
+            # Criar pasta para logos se não existir
+            logo_dir = os.path.join("uploads", "logos")
+            os.makedirs(logo_dir, exist_ok=True)
+            
+            # Gerar nome único para o arquivo
+            file_ext = os.path.splitext(self.logo_path)[1]
+            new_filename = f"logo_{sponsor.id}_{datetime.now().strftime('%Y%m%d%H%M%S')}{file_ext}"
+            new_path = os.path.join(logo_dir, new_filename)
+            
+            # Copiar arquivo
+            copy2(self.logo_path, new_path)
+            
+            # Atualizar caminho no objeto
+            sponsor.logo_path = new_path
+        
+        except Exception as e:
+            logger.error(f"Erro ao copiar arquivo de logo: {str(e)}")
+            raise
